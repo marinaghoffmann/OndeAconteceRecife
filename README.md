@@ -155,3 +155,120 @@ Parâmetros de `/events`: `categoria`, `preco` (gratuito | ate50 | 50a100 | acim
 - `E3-US11` — Scraper TicketPE + Sympla + Prefeitura (integração API TicketPE em andamento)
 - `E2-US09` — Autenticação via Supabase Auth
 - `E6-US27` — Dashboard com gráficos de distribuição de eventos
+
+# Agent — Onde Acontece Recife
+
+Servidor proxy Node.js que expõe um endpoint de chat conectado ao **Google Gemini 1.5 Flash**.  
+Busca os eventos do backend FastAPI em tempo real e os injeta como contexto em cada conversa.
+
+---
+
+## Estrutura
+
+```
+agent/
+├── server.js        # servidor Express — proxy Gemini + contexto de eventos
+├── package.json
+├── .env.example     # variáveis necessárias
+└── README.md
+```
+
+---
+
+## Como rodar
+
+### 1. Instalar dependências
+
+```bash
+cd agent
+npm install
+```
+
+### 2. Configurar variáveis de ambiente
+
+```bash
+cp .env.example .env
+```
+
+Edite o `.env` com sua chave:
+
+```env
+GEMINI_API_KEY=sua_chave_aqui
+OAR_API_BASE=http://localhost:8000
+PORT=3001
+```
+
+Obtenha a chave gratuitamente em [aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
+
+### 3. Iniciar o agente
+
+```bash
+npm run dev
+```
+
+Agente disponível em `http://localhost:3001`.  
+Confirme com: `http://localhost:3001/health`
+
+---
+
+## Ordem de inicialização
+
+O projeto tem três processos separados. Suba nessa ordem:
+
+```bash
+# terminal 1 — backend
+cd backend && uvicorn main:app --reload
+
+# terminal 2 — agente
+cd agent && npm run dev
+
+# terminal 3 — frontend
+cd frontend && npm run dev
+```
+
+---
+
+## Variável no frontend
+
+Adicione ao `frontend/.env`:
+
+```env
+VITE_AGENT_URL=http://localhost:3001
+```
+
+Se omitida, o `ChatWidget.vue` usa `http://localhost:3001` como padrão.
+
+---
+
+## Endpoint
+
+### `POST /chat`
+
+```json
+{
+  "messages": [
+    { "role": "user", "content": "O que tem de gratuito hoje em Boa Viagem?" }
+  ]
+}
+```
+
+Resposta:
+
+```json
+{
+  "reply": "Encontrei dois eventos gratuitos em Boa Viagem hoje:\n\n• **Feira de Artesanato Pernambucano** ..."
+}
+```
+
+O histórico completo da conversa é enviado em cada requisição — o agente é stateless e o estado fica no frontend.
+
+---
+
+## Como funciona
+
+1. Recebe o histórico de mensagens do frontend
+2. Faz `GET /events?per_page=100` no backend FastAPI
+3. Serializa os eventos como texto estruturado
+4. Monta o prompt com system instruction + contexto + histórico
+5. Chama `gemini-1.5-flash` via REST
+6. Retorna a resposta para o frontend
